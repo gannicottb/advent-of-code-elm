@@ -6,6 +6,7 @@ import Html.Events exposing (..)
 import Array exposing (..)
 
 
+
 -- MAIN
 
 
@@ -49,7 +50,7 @@ update msg model =
 -- VIEW
 stringsToInts : List String -> List Int
 stringsToInts ints =
-    List.map (\a -> Maybe.withDefault 0 (String.toInt a)) ints
+    List.map (\a -> Maybe.withDefault 0 (a |> String.trim |> String.toInt)) ints
 
 -- Fuel required to launch a given module is based on its mass. Specifically, to find the fuel required for a module, take its mass, divide by three, round down, and subtract 2.
 calculateFuel : Int -> Int
@@ -82,59 +83,78 @@ calculateAllPart2 inputs =
 30,40,50
 -}
 
-
 type MaybeArgs 
     = Args { arg1: Int, arg2: Int, outputPos: Int}
     | MissingArg
-evaluateIntCode : String -> Result String (List Int)
+type alias IntCode = Array Int
+
+-- chunk : Int -> List a -> List (List a)
+-- chunk size list =
+--     case List.take size list of
+--        [] -> []
+--        sublist -> sublist :: chunk size (List.drop size list)
+evaluateIntCode : String -> Result String IntCode
 evaluateIntCode code =
     {-- evaluate the code and return the final state
+    each evaluation should yield a Result of Err or Ok new program,
+    which should be fed into the next evaluation. so it's recursive
     For each set of 4 values:
         Read the first opcode
         if 1 - perform addition, using the next 3 values as positions
-            addition = return a new copy of the program with modified values
-            use Array.set 
-            
+           return a new copy of the program with modified values
         if 2 - perform multiplication, using the next 3 values as positions
         if 99 - return the final state of the code
     --}
     let
-        program = Array.fromList (stringsToInts(String.split "," code))
-        opcode = get 0 program
-    in
-    case opcode of
-       Just 1 -> performOperation (+) program (extractArgs program)
-       Just 2 -> performOperation (*) program (extractArgs program)
-       Just 99 -> Ok (toList program)
-       _ -> Err "Unrecognized opcode"
+        initialProgram = String.split "," code
+                        |> stringsToInts
+                        |> Array.fromList
 
-extractArgs : Array Int -> MaybeArgs
-extractArgs line =
+        loop : Int -> IntCode -> Result String IntCode
+        loop offset currentProgram  =
+            let
+                opcode = get offset currentProgram
+                opArgs = extractArgs offset currentProgram
+            in
+
+            case opcode of
+                Just 1 -> performOperation (+) currentProgram opArgs
+                            |> Result.andThen (loop (offset + 4))
+                Just 2 -> performOperation (*) currentProgram opArgs
+                            |> Result.andThen (loop (offset + 4))
+                Just 99 -> Ok currentProgram
+                _ -> Err ("Unrecognized opcode" ++ Debug.toString opcode)
+    in
+    loop 0 initialProgram
+        
+
+extractArgs : Int -> IntCode -> MaybeArgs
+extractArgs offset program =
     let
-        arg1 = get 1 line
-                |> Maybe.andThen (\pos -> get pos line)
-        arg2 = get 2 line 
-                |> Maybe.andThen (\pos -> get pos line)
-        arg3 = get 3 line
+        arg1 = get (offset + 1) program
+                |> Maybe.andThen (\pos -> get pos program)
+        arg2 = get (offset + 2) program 
+                |> Maybe.andThen (\pos -> get pos program)
+        arg3 = get (offset + 3) program
     in
 
-    case (arg1, arg2, arg3) of
-       (Just v1, Just v2, Just v3) -> Args { arg1 = v1, arg2 = v2, outputPos = v3}
+    case [arg1, arg2, arg3] of
+       [Just v1, Just v2, Just v3] -> Args { arg1 = v1, arg2 = v2, outputPos = v3}
     
        _ -> MissingArg
 
-performOperation : (Int -> Int -> Int) -> (Array Int) -> MaybeArgs -> Result String (List Int)
+performOperation : (Int -> Int -> Int) -> IntCode -> MaybeArgs -> Result String IntCode
 performOperation op program positions =
     case positions of
-        Args { arg1, arg2, outputPos } -> Ok (toList(set outputPos (op arg1 arg2) program))
+        Args { arg1, arg2, outputPos } -> Ok (set outputPos (op arg1 arg2) program)
 
-        MissingArg -> Err "One of the arguments to add is missing"
+        MissingArg -> Err "One of the arguments is missing"
 
-formatIntCode : Result String (List Int) -> String
+formatIntCode : Result String IntCode -> String
 formatIntCode result =
     case result of
         Ok code -> 
-            String.join "," (List.map String.fromInt code)
+            String.join "," (List.map String.fromInt (Array.toList code))
         Err msg -> msg
     
 
