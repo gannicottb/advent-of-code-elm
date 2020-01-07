@@ -1,4 +1,4 @@
-module Main exposing (..)
+module Main exposing (main)
 import Browser
 import Html exposing (..)
 import Html.Attributes exposing (..)
@@ -87,6 +87,18 @@ type MaybeArgs
     = Args { arg1: Int, arg2: Int, outputPos: Int}
     | MissingArg
 type alias IntCode = Array Int
+type alias Instruction = {
+        opcode: Int,
+        arg1: Int,
+        arg2: Int,
+        arg3: Int
+    }
+
+-- rawCode = "1,1,1,4,99,5,6,0,99"
+-- String.split "," rawCode 
+-- |> List.map String.trim 
+-- |> List.filterMap String.toInt
+
 
 -- chunk : Int -> List a -> List (List a)
 -- chunk size list =
@@ -157,7 +169,41 @@ formatIntCode result =
             String.join "," (List.map String.fromInt (Array.toList code))
         Err msg -> msg
     
-
+findNounAndVerbFor : String -> Int -> String
+findNounAndVerbFor code targetOutput =
+    "Blerp"
+    {--
+        looping pattern is: try val1 = 0 and val2 = 0..99, then val1 = 1 and val2 = 0.99, and so on until val1 > 99
+        evaluateIntCode with the initial memory modified thusly:
+        position 1 and 2 set to 0..99 and 0, walking pos 1
+        Halt if pos 0 of the output is equal to the targetoutput
+        return 100 * pos1 + pos2
+    --}
+    -- let
+    --     initialProgram = String.split "," code
+    --                     |> stringsToInts
+    --                     |> Array.fromList
+    --     loop : Int -> Int -> Int
+    --     loop value1 value2 =
+    --         if value2 < 99 then 
+    --             loop value1 (value2 + 1)
+    --         else
+    --             let
+    --                 modifiedMemory = String.concat [
+    --                     (String.left 1 initialProgram), 
+    --                     (String.fromInt value1), 
+    --                     (String.fromInt value2), 
+    --                     (String.dropLeft 3 initialProgram)]
+    --             in 
+    --             case evaluateIntCode modifiedMemory of
+    --             Ok output ->
+    --                     if String.fromInt (Array.get 0 output) == targetOutput then
+    --                         String.fromInt (100 * value1 + value2)
+    --                     else
+    --                         loop 
+    --             Err msg -> msg
+    -- in
+    -- loop 0 0
 
 
 
@@ -182,9 +228,14 @@ view model =
         , hr [][]
         , div [class "day-2"][
             textarea [placeholder "Intcode input", onInput UpdateIntcode, rows 10][]
-            , div[][text model.intCode]
-            , div [][text (Debug.toString (evaluateIntCode model.intCode))]
-            , div [][text (formatIntCode (evaluateIntCode model.intCode))]
+            , div [class "part-1", style "padding" "10px 0px 10px 0px"][
+                div[][text model.intCode]
+                , div [][text (Debug.toString (evaluateIntCode model.intCode))]
+                , div [][text (formatIntCode (evaluateIntCode model.intCode))]
+            ]
+            , div [class "part-2", style "padding" "10px 0px 10px 0px"][
+                div [][text (findNounAndVerbFor model.intCode 19690720)]
+            ]
         ]
     ]
     
