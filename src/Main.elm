@@ -49,8 +49,10 @@ update msg model =
 
 -- VIEW
 stringsToInts : List String -> List Int
-stringsToInts ints =
-    List.map (\a -> Maybe.withDefault 0 (a |> String.trim |> String.toInt)) ints
+stringsToInts strings =
+    strings
+    |> List.filterMap (\s -> String.trim s |> String.toInt)
+
 
 -- Fuel required to launch a given module is based on its mass. Specifically, to find the fuel required for a module, take its mass, divide by three, round down, and subtract 2.
 calculateFuel : Int -> Int
@@ -59,7 +61,9 @@ calculateFuel mass =
     
 calculateAll : List String -> Int
 calculateAll inputs =
-    List.sum (List.map calculateFuel (stringsToInts inputs))
+    stringsToInts inputs
+    |> List.map calculateFuel
+    |> List.sum
 
 calculateAllPart2 : List String -> Int
 calculateAllPart2 inputs =
@@ -74,7 +78,9 @@ calculateAllPart2 inputs =
             else
                 sum
     in
-    List.sum (List.map (\mass -> recurse mass 0) (stringsToInts inputs))
+    stringsToInts inputs
+    |> List.map (\mass -> recurse mass 0)
+    |> List.sum
 
 -- IntCode Computer
 
@@ -90,9 +96,11 @@ type alias Instruction = {
     }
 
 -- Used for Day 1 Part 1
-evaluateRaw : String -> Result String IntCode
-evaluateRaw initial =
-    recurseOverIntCode 0 (convertToIntCode initial)
+runTwoInputWrapper : Int -> Int -> String -> String
+runTwoInputWrapper a b raw =
+    case runTwoInputComputer a b (convertToIntCode raw) of
+       Ok result -> result |> String.fromInt
+       Err msg -> msg
 
 -- Utility to parse an input string into an IntCode
 convertToIntCode : String -> IntCode
@@ -101,6 +109,20 @@ convertToIntCode raw =
     |> List.map String.trim
     |> List.filterMap String.toInt
     |> Array.fromList
+
+-- Wrapper around our intcode computer that takes two inputs and returns a Result containing the output
+runTwoInputComputer : Int -> Int -> IntCode -> Result String Int
+runTwoInputComputer input1 input2 memory =
+    let
+        modified = memory
+                    |> Array.set 1 input1
+                    |> Array.set 2 input2
+    in
+    case recurseOverIntCode 0 modified of
+        Ok final -> case Array.get 0 final of
+                        Just result -> Ok result
+                        Nothing -> Err "Final memory has no value at position 0, somehow."
+        Err msg -> Err msg
 
 -- Recursively extract instructions and evaluate, advancing pointer 4 addresses each time until a 99 opcode is found or an instruction fails
 recurseOverIntCode : Int -> IntCode -> Result String IntCode
@@ -115,7 +137,8 @@ recurseOverIntCode pointer memory =
        Nothing -> Err ("Failed to extract instruction with pointer at address " ++ String.fromInt pointer)
 
 -- Attempt to slice an instruction starting from the pointer in given memory 
--- This might be wrong - it's probably valid to have a 99 with fewer than 4 values after it.   
+-- This might be wrong - it's probably valid to have a 99 with fewer than 4 values after it.
+-- It might be more correct to simply take the slice and let the extractArgs complain if it's missing info?   
 extractInstruction : Int -> IntCode -> Maybe Instruction
 extractInstruction pointer memory =
     case Array.toList (slice pointer (pointer + 4) memory) of
@@ -151,36 +174,40 @@ extractArgs instruction memory =
 
 -- Given a function, memory, and arguments, return a Result containing the new memory 
 performOperation : (Int -> Int -> Int) -> IntCode -> MaybeArgs -> Result String IntCode
-performOperation op program positions =
-    case positions of
-        Args { arg1, arg2, outputPos } -> Ok (set outputPos (op arg1 arg2) program)
+performOperation fn memory args =
+    case args of
+        Args { arg1, arg2, outputPos } -> Ok (set outputPos (fn arg1 arg2) memory)
 
         MissingArg -> Err "One of the arguments is missing"
 
 
--- Pretty up the IntCode for display in the browser
-formatIntCode : Result String IntCode -> String
-formatIntCode result =
-    case result of
-        Ok code -> 
-            String.join "," (List.map String.fromInt (Array.toList code))
-        Err msg -> msg
-
-
 -- For use in Day 2 Part 2
--- Create a list of tuples with all permutations of values (0..99 x 0..99) and filter down to the pair that checks out
--- Yes, we're doing more work than we need to.
 findNounAndVerbFor : String -> Int -> String
-findNounAndVerbFor code targetOutput =
-    List.range 0 99 
-    |> List.concatMap (\noun -> List.range 0 99 |> List.map (\verb -> (noun, verb)))
-    |> List.filterMap (\pair -> checkInput (Tuple.first pair) (Tuple.second pair) (convertToIntCode code) targetOutput)
-    |> List.head
-    |> (\pair -> case pair of 
-                    Just (noun, verb) -> 100 * noun + verb
-                    Nothing -> -1) -- Arbitrary failure value :/
-    |> String.fromInt
-    
+findNounAndVerbFor memory target =
+     case checkInputRanges 0 99 0 99 (convertToIntCode memory) target of
+        Just (noun, verb) -> 100 * noun + verb |> String.fromInt
+        Nothing -> "No combination of inputs yield " ++ String.fromInt target
+
+
+-- Given a min and max for both verb and noun, check every combination of those inputs until an answer is found  
+checkInputRanges : Int -> Int -> Int -> Int -> IntCode -> Int -> Maybe (Int, Int)
+checkInputRanges nounMin nounMax verbMin verbMax memory target =
+    let
+        helper : Int -> Int -> Maybe (Int, Int)
+        helper noun verb =
+            if noun < nounMin then
+                Nothing
+            else if verb < verbMin then
+                helper (noun - 1) verbMax
+            else
+                case checkInput noun verb memory target of
+                   Just pair -> Just pair
+
+                   Nothing -> helper noun (verb - 1)
+    in
+    helper nounMax verbMax
+
+ 
 -- Helper that runs our intcode computer and checks to see if, given a noun and a verb, the output matches the target output 
 checkInput : Int -> Int -> IntCode -> Int -> Maybe (Int, Int)
 checkInput noun verb memory target =
@@ -190,27 +217,15 @@ checkInput noun verb memory target =
                     else Nothing
         Err _ -> Nothing
 
--- Wrapper around our intcode computer that takes two inputs and returns a Result containing the output
-runTwoInputComputer : Int -> Int -> IntCode -> Result String Int
-runTwoInputComputer input1 input2 memory =
-    let
-        modified = memory
-                    |> Array.set 1 input1
-                    |> Array.set 2 input2
-    in
-    case recurseOverIntCode 0 modified of
-        Ok final -> case Array.get 0 final of
-                        Just result -> Ok result
-                        Nothing -> Err "Final memory has no value at position 0, somehow."
-        Err msg -> Err msg
-
 
 
 view : Model -> Html Msg
 view model =
     div [class "wrapper", style "padding" "20px"][
-        div [class "day-1"][
-            textarea [placeholder "Multiple Input", onInput UpdateList, rows 10][]
+        h1 [][text "Advent of Code 2019"]
+        , div [class "day-1"][
+            h3 [][text "Day 1"]
+            , textarea [placeholder "Multiple Input", onInput UpdateList, rows 10][]
             , div [class "part-1", style "padding" "10px 0px 10px 0px"][
                 div [][
                     div [][text "Part 1 - Calculate total fuel based on mass"]
@@ -226,14 +241,15 @@ view model =
         ]
         , hr [][]
         , div [class "day-2"][
-            textarea [placeholder "Intcode input", onInput UpdateIntcode, rows 10][]
+            h3 [][text "Day 2"]
+            , textarea [placeholder "Intcode input", onInput UpdateIntcode, rows 10][]
             , div [class "part-1", style "padding" "10px 0px 10px 0px"][
-                div[][text model.intCode]
-                , div [][text (Debug.toString (evaluateRaw model.intCode))]
-                , div [][text (formatIntCode (evaluateRaw model.intCode))]
+                div [][text "Part 1 - 1202 Program"]
+                , div [][text (runTwoInputWrapper 12 2 model.intCode)]
             ]
             , div [class "part-2", style "padding" "10px 0px 10px 0px"][
-                div [][text (findNounAndVerbFor model.intCode 19690720)]
+                div [][text "Part 2 - Find the noun and verb"]
+                , div [][text (findNounAndVerbFor model.intCode 19690720)]
             ]
         ]
     ]
